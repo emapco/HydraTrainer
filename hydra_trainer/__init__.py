@@ -30,25 +30,38 @@ class BaseDataset(ABC, datasets.Dataset):
 
 
 BoundBaseDatasetType = TypeVar("BoundBaseDatasetType", bound=datasets.Dataset)
+BoundBaseDatasetConfig = TypeVar("BoundBaseDatasetConfig", bound=DictConfig)
 
 
-class BaseTrainer(ABC, Generic[BoundBaseDatasetType]):
+class BaseTrainer(ABC, Generic[BoundBaseDatasetType, BoundBaseDatasetConfig]):
     def __init__(self, cfg: DictConfig):
         self.cfg = cfg
         set_seed(cfg.seed)
 
     @abstractmethod
-    def _model_init_factory(self):
+    def model_init_factory(self):
         raise NotImplementedError
 
     @abstractmethod
-    def _dataset_factory(
-        self, dataset_cfg: DictConfig, dataset_key: Literal["train", "eval"]
+    def dataset_factory(
+        self, dataset_cfg: BoundBaseDatasetConfig, dataset_key: Literal["train", "eval"]
     ) -> BoundBaseDatasetType:
         raise NotImplementedError
 
     @staticmethod
-    def get_trial_suggestion(trial: optuna.Trial, param_name: str, param: DictConfig):
+    def get_trial_model_cfg(trial: optuna.Trial | None, cfg: DictConfig):
+        model_cfg = cfg.model
+        if trial is not None and hasattr(cfg.hyperopt.hp_space, "model"):
+            # Override config with trial parameters for model
+            for param in cfg.hyperopt.hp_space.model:
+                param_name = param.name
+                trial_name = f"model__{param_name}"
+                model_cfg[param_name] = trial.params[trial_name]
+
+        return model_cfg
+
+    @staticmethod
+    def _get_trial_suggestion(trial: optuna.Trial, param_name: str, param: DictConfig):
         suggestion_map = {
             "int": lambda: trial.suggest_int(
                 param_name,
@@ -76,19 +89,23 @@ class BaseTrainer(ABC, Generic[BoundBaseDatasetType]):
                 param_name = (
                     f"model__{param.name}"  # prefixed and handle in _model_init_factory
                 )
-                params[param_name] = self.get_trial_suggestion(trial, param_name, param)
+                params[param_name] = self._get_trial_suggestion(
+                    trial, param_name, param
+                )
 
             for param in self.cfg.hyperopt.hp_space.training:
                 param_name = f"{param.name}"  # no prefix: following default_hp_space_optuna example
-                params[param_name] = self.get_trial_suggestion(trial, param_name, param)
+                params[param_name] = self._get_trial_suggestion(
+                    trial, param_name, param
+                )
 
             return params
 
         return optuna_hp_space_factory
 
     def _init_trainer(self):
-        train_ds = self._dataset_factory(self.cfg.dataset, "train")
-        eval_ds = self._dataset_factory(self.cfg.dataset, "eval")
+        train_ds = self.dataset_factory(self.cfg.dataset, "train")
+        eval_ds = self.dataset_factory(self.cfg.dataset, "eval")
 
         run_name = (
             self.cfg.trainer.run_name if hasattr(self.cfg.trainer, "run_name") else ""
@@ -122,20 +139,12 @@ class BaseTrainer(ABC, Generic[BoundBaseDatasetType]):
         callbacks: list[TrainerCallback] = [
             EarlyStoppingCallback(early_stopping_patience=early_stopping_patience)
         ]
-        if self.cfg.do_hyperoptim:
-            return Trainer(
-                args=training_args,
-                train_dataset=train_ds,
-                eval_dataset=eval_ds,
-                callbacks=callbacks,
-                model_init=self._model_init_factory(),
-            )
         return Trainer(
-            model=self._model_init_factory()(),
             args=training_args,
             train_dataset=train_ds,
             eval_dataset=eval_ds,
             callbacks=callbacks,
+            model_init=self.model_init_factory(),
         )
 
     def train(self):

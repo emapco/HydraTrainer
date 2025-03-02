@@ -53,23 +53,15 @@ from hydra_trainer import BaseTrainer
 
 
 class ExampleTrainer(BaseTrainer[ExampleDataset]):
-    def _model_init_factory(self):
-        model_cfg = self.cfg.model
-
-        def model_init_closure(trial: optuna.Trial | None = None):
-            if trial is not None and hasattr(self.cfg.hyperopt.hp_space, "model"):
-                # Override config with trial parameters for model
-                for param in self.cfg.hyperopt.hp_space.model:
-                    param_name = param.name
-                    trial_name = f"model__{param_name}"
-                    model_cfg[param_name] = trial.params[trial_name]
-
+    def model_init_factory(self):
+        def model_init(trial: optuna.Trial | None = None):
+            model_cfg = self.get_trial_model_cfg(trial, self.cfg)
             # TODO: implement model initialization
             raise NotImplementedError
 
-        return model_init_closure
+        return model_init
 
-    def _dataset_factory(
+    def dataset_factory(
         self, dataset_cfg: DictConfig, dataset_key: Literal["train", "eval"]
     ) -> ExampleDataset:
         # TODO: implement this method
@@ -82,7 +74,7 @@ class ExampleTrainer(BaseTrainer[ExampleDataset]):
 import hydra
 from omegaconf import DictConfig
 
-@hydra.main(config_path="../conf", config_name="base", version_base=None)
+@hydra.main(config_path="hydra_trainer", config_name="base", version_base=None)
 def main(cfg: DictConfig):
     trainer = ExampleTrainer(cfg)
     trainer.train()
@@ -93,8 +85,8 @@ if __name__ == "__main__":
 
 ## BaseTrainer Key Features
 
-1. **Model Initialization Factory**: Implement `_model_init_factory()` to define how your model is created.
-2. **Dataset Factory**: Implement `_dataset_factory()` to create your training and evaluation datasets
+1. **Model Initialization Factory**: Implement `model_init_factory()` to define how your model is created.
+2. **Dataset Factory**: Implement `dataset_factory()` to create your training and evaluation datasets
 3. **Early Stopping**: Built-in early stopping support with configurable patience
 
 ## Configuration
@@ -108,7 +100,7 @@ resume_from_checkpoint: null
 do_hyperoptim: false
 early_stopping_patience: 3
 
-model: # model parameters - access within hydra_trainer._model_init_factory
+model: # model parameters - access them within `model_init_factory` implementation
   d_model: 128
   n_layers: 12
   n_heads: 16

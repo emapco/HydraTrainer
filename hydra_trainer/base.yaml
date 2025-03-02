@@ -12,8 +12,7 @@ model: # example usage - define your own model parameters here
   n_heads: 16
   d_ff: 512
 
-trainer:
-  # _target_: transformers.TrainingArguments
+trainer: # transformers.TrainingArguments
   seed: ${seed}
   num_train_epochs: 3
   eval_strategy: steps
@@ -37,9 +36,9 @@ trainer:
   learning_rate: 5e-3
   weight_decay: 0.0
   gradient_accumulation_steps: 16
-  optim: adamw
+  optim: adamw_torch
   fp16: true
-  fp16_full_eval: true
+  fp16_full_eval: false
   torch_compile: true
 
 hyperopt: # currently only optuna is supported
