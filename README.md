@@ -2,6 +2,8 @@
 
 A package that wraps Hugging Face's Transformer Trainer with Hydra integration for better configuration management and hyperparameter optimization support.
 
+Checkout my [powerformer repo](https://github.com/emapco/powerformer) for a concrete example.
+
 ## Features
 
 - Hydra configuration management
@@ -52,7 +54,7 @@ from omegaconf import DictConfig
 from hydra_trainer import BaseTrainer
 
 
-class ExampleTrainer(BaseTrainer[ExampleDataset]):
+class ExampleTrainer(BaseTrainer[ExampleDataset, DictConfig]):
     def model_init_factory(self):
         def model_init(trial: optuna.Trial | None = None):
             model_cfg = self.get_trial_model_cfg(trial, self.cfg)
@@ -87,7 +89,6 @@ if __name__ == "__main__":
 
 1. **Model Initialization Factory**: Implement `model_init_factory()` to define how your model is created.
 2. **Dataset Factory**: Implement `dataset_factory()` to create your training and evaluation datasets
-3. **Early Stopping**: Built-in early stopping support with configurable patience
 
 ## Configuration
 
@@ -121,7 +122,14 @@ trainer: #  transformers.TrainingArguments
 hyperopt:
   n_trials: 128
   patience: 2
-  persistence: false
+  persistence: true # set to false to use in memory storage instead of db storage
+  load_if_exists: true
+  storage_url: postgresql://postgres:password@127.0.0.1:5432/postgres
+  storage_heartbeat_interval: 15
+  storage_engine_kwargs:
+    pool_size: 5
+    connect_args:
+      keepalives: 1
   hp_space:
     training:
       - name: learning_rate # TrainingArguments attribute name

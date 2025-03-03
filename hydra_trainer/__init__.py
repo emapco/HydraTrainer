@@ -29,11 +29,11 @@ class BaseDataset(ABC, datasets.Dataset):
         raise NotImplementedError
 
 
-BoundBaseDatasetType = TypeVar("BoundBaseDatasetType", bound=datasets.Dataset)
+BoundBaseDataset = TypeVar("BoundBaseDataset", bound=datasets.Dataset)
 BoundBaseDatasetConfig = TypeVar("BoundBaseDatasetConfig", bound=DictConfig)
 
 
-class BaseTrainer(ABC, Generic[BoundBaseDatasetType, BoundBaseDatasetConfig]):
+class BaseTrainer(ABC, Generic[BoundBaseDataset, BoundBaseDatasetConfig]):
     def __init__(self, cfg: DictConfig):
         self.cfg = cfg
         set_seed(cfg.seed)
@@ -45,7 +45,7 @@ class BaseTrainer(ABC, Generic[BoundBaseDatasetType, BoundBaseDatasetConfig]):
     @abstractmethod
     def dataset_factory(
         self, dataset_cfg: BoundBaseDatasetConfig, dataset_key: Literal["train", "eval"]
-    ) -> BoundBaseDatasetType:
+    ) -> BoundBaseDataset:
         raise NotImplementedError
 
     @staticmethod
@@ -84,20 +84,21 @@ class BaseTrainer(ABC, Generic[BoundBaseDatasetType, BoundBaseDatasetConfig]):
     def _optuna_hp_space_factory(self):
         def optuna_hp_space_factory(trial: optuna.Trial):
             params = {}
+            model_params = self.cfg.hyperopt.hp_space.get("model", None)
+            if model_params is not None:
+                for param in model_params:
+                    param_name = f"model__{param.name}"  # prefixed and handle in model_init_factory
+                    params[param_name] = self._get_trial_suggestion(
+                        trial, param_name, param
+                    )
 
-            for param in self.cfg.hyperopt.hp_space.model:
-                param_name = (
-                    f"model__{param.name}"  # prefixed and handle in _model_init_factory
-                )
-                params[param_name] = self._get_trial_suggestion(
-                    trial, param_name, param
-                )
-
-            for param in self.cfg.hyperopt.hp_space.training:
-                param_name = f"{param.name}"  # no prefix: following default_hp_space_optuna example
-                params[param_name] = self._get_trial_suggestion(
-                    trial, param_name, param
-                )
+            training_params = self.cfg.hyperopt.hp_space.get("training", None)
+            if training_params is not None:
+                for param in training_params:
+                    param_name = f"{param.name}"  # no prefix: following default_hp_space_optuna example
+                    params[param_name] = self._get_trial_suggestion(
+                        trial, param_name, param
+                    )
 
             return params
 
@@ -121,12 +122,12 @@ class BaseTrainer(ABC, Generic[BoundBaseDatasetType, BoundBaseDatasetConfig]):
         use_scaled_weight_decay = training_args.pop(
             "use_scaled_weight_decay", False
         )  # custom
+        # Normalized weight decay for adamw optimizer - https://arxiv.org/pdf/1711.05101.pdf
         if use_scaled_weight_decay:
             weight_decay = 0.05 * math.sqrt(
                 self.cfg.trainer.per_device_train_batch_size
                 / (len(train_ds) * self.cfg.trainer.num_train_epochs)
             )
-        early_stopping_patience = self.cfg.get("early_stopping_patience", 1)  # custom
 
         training_args = TrainingArguments(
             **training_args,
@@ -136,9 +137,12 @@ class BaseTrainer(ABC, Generic[BoundBaseDatasetType, BoundBaseDatasetConfig]):
             remove_unused_columns=False,
         )
 
-        callbacks: list[TrainerCallback] = [
-            EarlyStoppingCallback(early_stopping_patience=early_stopping_patience)
-        ]
+        early_stopping_patience = self.cfg.get("early_stopping_patience", None)
+        callbacks = None
+        if not self.cfg.do_hyperoptim and early_stopping_patience is not None:
+            callbacks: list[TrainerCallback] | None = [
+                (EarlyStoppingCallback(early_stopping_patience=early_stopping_patience))
+            ]
         return Trainer(
             args=training_args,
             train_dataset=train_ds,

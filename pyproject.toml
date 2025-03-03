@@ -1,6 +1,6 @@
 [project]
 name = "hydra_trainer"
-version = "0.1.1"
+version = "0.1.2"
 description = "Hugging Face transformers with Hydra integration"
 license = { text = "Apache 2.0" }
 readme = "README.md"

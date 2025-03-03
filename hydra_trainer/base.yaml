@@ -33,7 +33,7 @@ trainer: # transformers.TrainingArguments
   dataloader_prefetch_factor: 2
   dataloader_pin_memory: true
   lr_scheduler_type: constant_with_warmup
-  learning_rate: 5e-3
+  learning_rate: 5e-5
   weight_decay: 0.0
   gradient_accumulation_steps: 16
   optim: adamw_torch
